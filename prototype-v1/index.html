@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email Drafting Study</title>
+<style>
+  :root { --bg:#f6f8fc; --panel:#fff; --ink:#1f1f1f; --mute:#5f6368; --line:#dadce0; --accent:#0b57d0;
+          --ins:#137333; --insbg:#e6f4ea; --del:#b3261e; --delbg:#fce8e6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#17181c; --panel:#202124; --ink:#e8eaed; --mute:#9aa0a6; --line:#3c4043; --accent:#8ab4f8;
+            --ins:#81c995; --insbg:#1e3a2a; --del:#f28b82; --delbg:#4a2523; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); height:100vh; display:flex; flex-direction:column; }
+  header { display:flex; align-items:center; gap:8px; padding:8px 16px; border-bottom:1px solid var(--line); background:var(--panel); }
+  header h1 { font-size:15px; margin:0 16px 0 0; font-weight:600; }
+  .tab { border:0; background:none; color:var(--mute); padding:8px 14px; border-radius:16px; cursor:pointer; font:inherit; }
+  .tab.active { background:color-mix(in srgb, var(--accent) 15%, transparent); color:var(--accent); font-weight:600; }
+  header .sp { flex:1; }
+  button.btn { border:1px solid var(--line); background:var(--panel); color:var(--ink); padding:6px 12px; border-radius:16px; cursor:pointer; font:inherit; }
+  button.btn:hover { background:var(--bg); }
+  button.btn:disabled { opacity:.5; cursor:default; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  @media (prefers-color-scheme: dark) { button.primary { color:#202124; } }
+  main { flex:1; display:flex; min-height:0; }
+  .view { flex:1; display:none; padding:16px; min-width:0; min-height:0; }
+  .view.active { display:flex; flex-direction:column; }
+
+  /* Compose window (Gmail-like) */
+  .compose { max-width:760px; width:100%; margin:0 auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; display:flex; flex-direction:column; flex:1; min-height:0; box-shadow:0 2px 8px #0002; }
+  .compose .bar { background:#404040; color:#fff; padding:10px 14px; border-radius:10px 10px 0 0; font-weight:600; }
+  .compose .row { display:flex; align-items:center; border-bottom:1px solid var(--line); padding:0 14px; }
+  .compose .row label { color:var(--mute); width:60px; }
+  .compose input { flex:1; border:0; outline:0; padding:10px 0; font:inherit; background:none; color:inherit; }
+  .compose textarea { flex:1; border:0; outline:0; resize:none; padding:14px; font:inherit; background:none; color:inherit; }
+  .compose .foot { padding:10px 14px; display:flex; gap:8px; align-items:center; border-top:1px solid var(--line); }
+  .compose .foot .sp { flex:1; } .stat { color:var(--mute); font-size:12px; }
+  .sentbanner { color:var(--ins); font-weight:600; }
+
+  /* Assistant (plain chat) */
+  .chat { max-width:760px; width:100%; margin:0 auto; display:flex; flex-direction:column; flex:1; min-height:0; }
+  #msgs { flex:1; overflow:auto; display:flex; flex-direction:column; gap:14px; padding:8px 0; }
+  .msg { max-width:88%; padding:10px 14px; border-radius:16px; white-space:pre-wrap; word-break:break-word; }
+  .msg.user { align-self:flex-end; background:color-mix(in srgb, var(--accent) 16%, var(--panel)); }
+  .msg.assistant { align-self:flex-start; background:var(--panel); border:1px solid var(--line); }
+  .msg .tools { margin-top:6px; }
+  .msg .tools button { border:0; background:none; color:var(--mute); cursor:pointer; font:inherit; font-size:12px; padding:2px 6px; border-radius:6px; }
+  .msg .tools button:hover { background:var(--bg); }
+  .hint { color:var(--mute); text-align:center; margin:auto; font-size:22px; }
+  .inputbar { border:1px solid var(--line); border-radius:20px; background:var(--panel); padding:8px 10px; display:flex; gap:6px; align-items:flex-end; }
+  .inputbar textarea { flex:1; border:0; outline:0; resize:none; font:inherit; background:none; color:inherit; min-height:44px; max-height:220px; }
+
+  .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#323232; color:#fff; padding:10px 18px; border-radius:8px; opacity:0; transition:opacity .25s; pointer-events:none; z-index:20; }
+  .toast.show { opacity:1; }
+
+  /* Activity log overlay (researcher view) */
+  #logview { position:fixed; inset:0; background:var(--bg); z-index:10; display:none; flex-direction:column; }
+  #logview.open { display:flex; }
+  #logview .top { display:flex; align-items:center; gap:8px; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--panel); }
+  #logview .top h2 { margin:0; font-size:15px; flex:1; }
+  #logbody { overflow:auto; padding:16px; max-width:900px; width:100%; margin:0 auto; display:flex; flex-direction:column; gap:8px; }
+  #summary { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:13px; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:13px; background:var(--panel); }
+  .meta { display:flex; gap:8px; align-items:center; color:var(--mute); font-size:12px; margin-bottom:4px; flex-wrap:wrap; }
+  .badge { padding:1px 8px; border-radius:10px; font-weight:600; color:#fff; font-size:11px; }
+  .b-typed{background:#5f6368} .b-pasted{background:#b06000} .b-pastedai{background:#c2185b} .b-deleted{background:#b3261e} .b-cut{background:#b3261e}
+  .b-undo{background:#7b1fa2} .b-other{background:#5f6368} .b-prompt{background:#0b57d0} .b-reply{background:#188038}
+  .diff, .plain { white-space:pre-wrap; word-break:break-word; }
+  ins { background:var(--insbg); color:var(--ins); text-decoration:none; }
+  del { background:var(--delbg); color:var(--del); }
+  .pause { text-align:center; color:var(--mute); font-size:12px; border-top:1px dashed var(--line); border-bottom:1px dashed var(--line); padding:3px 0; }
+  .pause.long { color:#b06000; font-weight:600; }
+  .tabrow { text-align:center; color:var(--mute); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>✉️ Email Drafting</h1>
+  <button class="tab active" data-tab="mail">Mail</button>
+  <button class="tab" data-tab="chat">Assistant</button>
+  <span class="sp"></span>
+</header>
+<main>
+  <section class="view active" id="view-mail">
+    <div class="compose">
+      <div class="bar">New Message</div>
+      <div class="row"><label>To</label><input id="to" autocomplete="off"></div>
+      <div class="row"><label>Subject</label><input id="subject" autocomplete="off"></div>
+      <textarea id="body" placeholder="Write your email here…" spellcheck="true"></textarea>
+      <div class="foot">
+        <button class="btn primary" id="send">Send</button>
+        <span class="sentbanner" id="sentbanner"></span>
+        <button class="btn" id="showlog" style="display:none">View activity log</button>
+        <span class="sp"></span><span class="stat" id="wc">0 words</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-chat">
+    <div class="chat">
+      <div id="msgs"><div class="hint" id="hint">How can I help you today?</div></div>
+      <div class="inputbar">
+        <textarea id="chatin" rows="1" placeholder="Message the assistant…"></textarea>
+        <button class="btn primary" id="sendChat">Send</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="logview">
+  <div class="top"><h2>Activity log</h2><button class="btn" id="export">Export JSON</button><button class="btn" id="closelog">Close</button></div>
+  <div id="logbody"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const params = new URLSearchParams(location.search);
+const PID = params.get('pid') || 'anon';
+const SID = Math.random().toString(36).slice(2, 8);
+const START = Date.now();
+
+// ---------- Event log (mirrored to server -> logs/<pid>.jsonl) ----------
+const events = [];
+let queue = [];
+function logEvent(type, data = {}) {
+  const e = { t: Date.now(), sid: SID, type, ...data };
+  events.push(e); queue.push(e); return e;
+}
+async function flush() {
+  if (!queue.length) return;
+  const batch = queue; queue = [];
+  try { await fetch('/api/log', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ pid: PID, events: batch }) }); }
+  catch { queue = batch.concat(queue); }
+}
+setInterval(flush, 2000);
+addEventListener('beforeunload', () => { if (queue.length) navigator.sendBeacon('/api/log', new Blob([JSON.stringify({ pid: PID, events: queue })], { type:'application/json' })); });
+
+// ---------- Word-level diff ----------
+const tokenize = s => s.split(/(\s+)/).filter(x => x !== '');
+function wordDiff(a, b) {
+  const A = tokenize(a), B = tokenize(b), n = A.length, m = B.length;
+  if (n * m > 4e6) return [{ t:'del', s:a }, { t:'ins', s:b }];
+  const L = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    L[i][j] = A[i] === B[j] ? L[i+1][j+1] + 1 : Math.max(L[i+1][j], L[i][j+1]);
+  const ops = []; let i = 0, j = 0;
+  const push = (t, s) => { const l = ops[ops.length-1]; if (l && l.t === t) l.s += s; else ops.push({ t, s }); };
+  while (i < n && j < m) {
+    if (A[i] === B[j]) { push('eq', A[i]); i++; j++; }
+    else if (L[i+1][j] >= L[i][j+1]) push('del', A[i++]);
+    else push('ins', B[j++]);
+  }
+  while (i < n) push('del', A[i++]);
+  while (j < m) push('ins', B[j++]);
+  return ops;
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const countWords = s => (s.match(/\S+/g) || []).length;
+const diffHTML = ops => ops.map(o => o.t === 'ins' ? `<ins>${esc(o.s)}</ins>` : o.t === 'del' ? `<del>${esc(o.s)}</del>` : esc(o.s)).join('');
+function diffStats(ops) { let add = 0, rem = 0; for (const o of ops) { if (o.t === 'ins') add += countWords(o.s); if (o.t === 'del') rem += countWords(o.s); } return { add, rem }; }
+const norm = s => s.replace(/\s+/g, ' ').trim();
+
+// ---------- Draft state, revisions, timeline ----------
+const fields = { to: $('#to'), subject: $('#subject'), body: $('#body') };
+const draft = { to: '', subject: '', body: '' };
+const timeline = [];       // chronological: rev | pause | tab | prompt | reply
+const aiReplies = [];      // normalized assistant texts, to detect "pasted from AI"
+const PAUSE_MS = 1500;     // idle gap that counts as a pause and ends a typing burst
+let openRev = null, revCount = 0, lastEditAt = START, firstEdit = true;
+let currentTab = 'mail', tabSince = START, awayInChat = false, sent = false;
+
+function sourceOf(t) {
+  if (!t) return 'other';
+  if (t === 'insertFromPaste' || t === 'insertFromDrop' || t === 'insertFromYank') return 'pasted';
+  if (t === 'deleteByCut') return 'cut';
+  if (t.startsWith('delete')) return 'deleted';
+  if (t === 'historyUndo' || t === 'historyRedo') return 'undo';
+  if (t.startsWith('insert')) return 'typed';
+  return 'other';
+}
+function charDelta(a, b) {
+  let p = 0; while (p < a.length && p < b.length && a[p] === b[p]) p++;
+  let s = 0; while (s < a.length - p && s < b.length - p && a[a.length-1-s] === b[b.length-1-s]) s++;
+  return { pos: p, del: a.slice(p, a.length - s), ins: b.slice(p, b.length - s) };
+}
+function notePause(now) {
+  const gap = now - lastEditAt;
+  if (gap >= PAUSE_MS) {
+    openRev = null;
+    const p = { kind:'pause', at: lastEditAt, ms: gap, first: firstEdit, where: awayInChat ? 'Assistant tab' : 'Mail tab' };
+    timeline.push(p); logEvent('pause', { ms: gap, first: firstEdit, where: p.where });
+  }
+}
+function recordChange(field, newVal, source, meta = {}) {
+  const prev = draft[field];
+  if (newVal === prev) return;
+  const now = Date.now();
+  notePause(now);
+  const d = charDelta(prev, newVal);
+  logEvent('edit', { field, source, inputType: meta.inputType || null, fromAI: !!meta.fromAI, ...d });
+  if (!(openRev && openRev.field === field && openRev.source === source)) {
+    openRev = { kind:'rev', id: ++revCount, field, source, startedAt: now, endedAt: now, before: prev, after: newVal, edits: 0, fromAI: false };
+    timeline.push(openRev);
+  }
+  openRev.after = newVal; openRev.endedAt = now; openRev.edits++;
+  if (meta.fromAI) openRev.fromAI = true;
+  draft[field] = newVal; lastEditAt = now; firstEdit = false; awayInChat = false;
+  updateWC();
+}
+for (const [f, el] of Object.entries(fields)) {
+  let lastType = null, pasted = '';
+  el.addEventListener('beforeinput', e => {
+    lastType = e.inputType;
+    pasted = (e.inputType === 'insertFromPaste' || e.inputType === 'insertFromDrop') ? (e.dataTransfer?.getData('text/plain') || '') : '';
+  });
+  el.addEventListener('input', e => {
+    const type = e.inputType || lastType, p = norm(pasted);
+    const fromAI = !!p && aiReplies.some(r => r.includes(p));
+    recordChange(f, el.value, sourceOf(type), { inputType: type, fromAI });
+    pasted = '';
+  });
+  el.addEventListener('blur', () => { openRev = null; });
+}
+const updateWC = () => { $('#wc').textContent = `${countWords(draft.body)} words`; };
+
+// ---------- Tabs ----------
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
+function switchTab(to) {
+  if (to === currentTab) return;
+  const now = Date.now();
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === to));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + to));
+  timeline.push({ kind:'tab', at: now, from: currentTab, to, spent: now - tabSince });
+  logEvent('tab_switch', { from: currentTab, to, spentMs: now - tabSince });
+  if (to === 'chat') awayInChat = true;
+  currentTab = to; tabSince = now; openRev = null;
+}
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200); }
+
+// ---------- Assistant: a plain chat ----------
+const history = [];
+const chatin = $('#chatin');
+chatin.addEventListener('beforeinput', e => {
+  if (e.inputType === 'insertFromPaste') {
+    const txt = e.dataTransfer?.getData('text/plain') || '';
+    logEvent('chat_paste', { chars: txt.length, words: countWords(txt), matchesDraft: !!norm(txt) && norm(draft.body).includes(norm(txt)), text: txt });
+  }
+});
+chatin.addEventListener('input', () => { chatin.style.height = 'auto'; chatin.style.height = Math.min(chatin.scrollHeight, 220) + 'px'; });
+chatin.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#sendChat').click(); } });
+// log any copy action (selection from the chat or elsewhere)
+document.addEventListener('copy', () => {
+  const text = String(getSelection());
+  if (text) logEvent('copy', { tab: currentTab, chars: text.length, fromAI: aiReplies.some(r => r.includes(norm(text))), text });
+});
+
+function addMsg(role, text) {
+  $('#hint')?.remove();
+  const d = document.createElement('div'); d.className = 'msg ' + role;
+  const body = document.createElement('div'); body.textContent = text; d.appendChild(body);
+  $('#msgs').appendChild(d); $('#msgs').scrollTop = 1e9; return { el: d, body };
+}
+$('#sendChat').onclick = async () => {
+  const text = chatin.value.trim(); if (!text) return;
+  chatin.value = ''; chatin.style.height = 'auto';
+  addMsg('user', text); history.push({ role:'user', content:text });
+  timeline.push({ kind:'prompt', at: Date.now(), text }); logEvent('chat_prompt', { text });
+  const pending = addMsg('assistant', '…');
+  try {
+    const r = await fetch('/api/chat', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ messages: history }) });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Request failed');
+    history.push({ role:'assistant', content:data.text }); aiReplies.push(norm(data.text));
+    timeline.push({ kind:'reply', at: Date.now(), text: data.text });
+    logEvent('chat_response', { text: data.text, model: data.model });
+    pending.body.textContent = data.text;
+    const tools = document.createElement('div'); tools.className = 'tools';
+    const cp = document.createElement('button'); cp.textContent = '⧉ Copy';
+    cp.onclick = () => { navigator.clipboard.writeText(data.text); logEvent('copy_button', { chars: data.text.length }); cp.textContent = '✓ Copied'; };
+    tools.appendChild(cp); pending.el.appendChild(tools);
+  } catch (err) { pending.body.textContent = '⚠️ ' + err.message; history.pop(); }
+};
+
+// ---------- Send + researcher log view ----------
+const snapshot = () => ({ pid: PID, sid: SID, startedAt: START, finalDraft: draft, timeline, events });
+$('#send').onclick = async () => {
+  if (sent) return;
+  notePause(Date.now());
+  sent = true; logEvent('send_email', { ...draft });
+  Object.values(fields).forEach(el => el.disabled = true);
+  $('#send').disabled = true;
+  $('#sentbanner').textContent = 'Sent ✓';
+  $('#showlog').style.display = '';
+  // Save the full revision history + final draft as one file, then flush the event stream.
+  try {
+    const r = await fetch('/api/submit', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(snapshot()) });
+    if (!r.ok) throw new Error();
+    await flush();
+  } catch {
+    $('#sentbanner').textContent = 'Sent ✓ (log save failed — use Export JSON in the log view)';
+  }
+};
+$('#showlog').onclick = () => { renderLog(); $('#logview').classList.add('open'); };
+$('#closelog').onclick = () => $('#logview').classList.remove('open');
+$('#export').onclick = () => {
+  const blob = new Blob([JSON.stringify(snapshot(), null, 2)], { type:'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${PID}-${SID}.json`; a.click();
+};
+
+const TIME = ms => new Date(ms).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+const SEC = ms => (ms / 1000).toFixed(1) + 's';
+function renderLog() {
+  const ed = events.filter(e => e.type === 'edit');
+  const sum = src => ed.filter(e => e.source === src).reduce((n, e) => n + e.ins.length + e.del.length, 0);
+  const aiPaste = ed.filter(e => e.fromAI).reduce((n, e) => n + e.ins.length, 0);
+  const pauses = timeline.filter(x => x.kind === 'pause');
+  const longest = pauses.reduce((m, p) => Math.max(m, p.ms), 0);
+  const revs = timeline.filter(x => x.kind === 'rev').length;
+  $('#logbody').innerHTML = `<div id="summary"><b>${esc(PID)}</b> · session ${SID} · ${SEC(Date.now() - START)} total<br>
+    ${revs} revisions · typed ${ed.filter(e=>e.source==='typed').reduce((n,e)=>n+e.ins.length,0)} chars · pasted ${ed.filter(e=>e.source==='pasted').reduce((n,e)=>n+e.ins.length,0)} chars (${aiPaste} from AI) · deleted ${ed.reduce((n,e)=> n + (e.source==='typed'||e.source==='pasted' ? 0 : e.del.length),0)} chars<br>
+    ${pauses.length} pauses ≥ ${PAUSE_MS/1000}s (total ${SEC(pauses.reduce((n,p)=>n+p.ms,0))}, longest ${SEC(longest)}) · ${history.filter(m=>m.role==='user').length} prompts to AI</div>` +
+  timeline.map(x => {
+    if (x.kind === 'pause') return `<div class="pause ${x.ms > 10000 ? 'long' : ''}">⏸ ${x.first ? 'Waited' : 'Paused'} ${SEC(x.ms)}${x.first ? ' before first edit' : ''} · ${TIME(x.at)} · ${x.where}</div>`;
+    if (x.kind === 'tab') return `<div class="tabrow">↔ ${TIME(x.at)} switched ${x.from} → ${x.to} (was in ${x.from} for ${SEC(x.spent)})</div>`;
+    if (x.kind === 'prompt') return `<div class="card"><div class="meta"><span class="badge b-prompt">Prompt to AI</span><span>${TIME(x.at)}</span></div><div class="plain">${esc(x.text)}</div></div>`;
+    if (x.kind === 'reply') return `<div class="card"><div class="meta"><span class="badge b-reply">AI reply</span><span>${TIME(x.at)}</span><span>${countWords(x.text)} words</span></div><div class="plain">${esc(x.text)}</div></div>`;
+    const ops = wordDiff(x.before, x.after), st = diffStats(ops);
+    const label = x.source === 'pasted' ? (x.fromAI ? 'Pasted from AI' : 'Pasted') : ({ typed:'Typed', deleted:'Deleted', cut:'Cut', undo:'Undo/Redo', other:'Other' })[x.source];
+    const cls = x.source === 'pasted' && x.fromAI ? 'pastedai' : x.source;
+    const net = (st.add || st.rem) ? `+${st.add} / −${st.rem} words` : 'no net word change';
+    return `<div class="card"><div class="meta"><span class="badge b-${cls}">${label}</span><span>#${x.id} · ${x.field}</span><span>${TIME(x.startedAt)}</span><span>${net}</span><span>${x.edits} edit${x.edits>1?'s':''} · ${SEC(x.endedAt - x.startedAt)}</span></div><div class="diff">${diffHTML(ops)}</div></div>`;
+  }).join('');
+}
+
+logEvent('session_start', { userAgent: navigator.userAgent });
+</script>
+</body>
+</html>

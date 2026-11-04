@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email Writing Study</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="logview.css">
+</head>
+<body>
+<header id="hdr" hidden><strong>Email Writing Study</strong><span class="sp"></span><span id="hdrinfo"></span></header>
+
+<!-- 1. Start -->
+<section id="s-start" class="screen center">
+  <div class="panel narrow">
+    <h1>Email Writing Study</h1>
+    <p>Enter the participant ID your researcher gave you.</p>
+    <input id="pidin" placeholder="Participant ID" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <p class="err" id="starterr"></p>
+    <button class="btn primary" id="startbtn">Start</button>
+    <p class="note">Please don't type real confidential company details. Nothing you write is actually emailed.</p>
+  </div>
+</section>
+
+<!-- 2. Scenario (read before writing) -->
+<section id="s-scenario" class="screen center" hidden>
+  <div class="panel">
+    <div class="kicker" id="sc-kicker"></div>
+    <div class="card" id="sc-card-read"></div>
+    <button class="btn primary" id="beginbtn">Begin writing</button>
+  </div>
+</section>
+
+<!-- 3. Writing -->
+<section id="s-write" class="screen write" hidden>
+  <aside class="card side" id="sc-card-write"></aside>
+  <div class="main">
+    <div class="tabs">
+      <button class="tab active" data-tab="email">Email</button>
+      <button class="tab" data-tab="chat">AI Chat</button>
+    </div>
+    <div class="compose view" id="v-email">
+      <div class="bar">New Message</div>
+      <div class="row"><label>To</label><input id="to" readonly></div>
+      <div class="row"><label>Subject</label><input id="subject" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="true"></div>
+      <div class="editor"><div id="mirror" aria-hidden="true"></div><textarea id="body" placeholder="Write your email here…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="true"></textarea></div>
+      <div class="foot">
+        <button class="btn primary" id="sendbtn">Send</button>
+        <span class="msg" id="msg"></span>
+        <span class="sp"></span><span class="msg" id="achint"></span>
+      </div>
+    </div>
+    <div class="chat view" id="v-chat" hidden>
+      <div id="chatlog"><div class="hint" id="chathint">How can I help you today?</div></div>
+      <div class="inputbar">
+        <textarea id="chatin" rows="1" placeholder="Message the assistant…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="true"></textarea>
+        <button class="btn primary" id="chatsend">Send</button>
+      </div>
+      <div class="msg" id="chatmsg"></div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Saved + log view -->
+<section id="s-saved" class="screen" hidden>
+  <div class="savedbar">
+    <strong class="ok" id="savedtitle">✓ Email saved</strong><span id="savedtxt"></span><span class="sp"></span>
+    <button class="btn primary" id="nextbtn" hidden>Start next email</button>
+    <button class="btn primary" id="cmpbtn" hidden>Open comparison view</button>
+  </div>
+  <div id="savedfilters"></div>
+  <div id="savedlog"></div>
+</section>
+
+<!-- 5. Comparison -->
+<section id="s-compare" class="screen" hidden>
+  <div class="savedbar"><strong>Comparison view</strong><span class="sp"></span><button class="btn" id="cmpback">Back</button></div>
+  <div id="cmpfilters"></div>
+  <div class="cmpgrid"><div id="cmpL"></div><div id="cmpR"></div></div>
+</section>
+
+<script src="core.js"></script>
+<script src="analysis.js"></script>
+<script src="logview.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

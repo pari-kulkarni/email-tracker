@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Researcher — Email Writing Study</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="logview.css">
+<style>
+  body { display:block; height:auto; }
+  .wrap { max-width:1500px; margin:0 auto; padding:18px 22px 60px; }
+  table { border-collapse:collapse; width:100%; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+  th, td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); }
+  tr.row { cursor:pointer; } tr.row:hover { background:var(--bg); }
+  .bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:14px 0; }
+  .bar .sp { flex:1; }
+  .pill { border-radius:10px; padding:0 8px; font-size:13px; border:1px solid var(--line); }
+  .pill.sent { color:var(--ok); border-color:var(--ok); } .pill.in_progress { color:#b06000; border-color:#b06000; }
+  a.btn { text-decoration:none; display:inline-block; }
+  .tabsr { display:flex; gap:6px; margin:14px 0; } .danger { color:var(--err); border-color:var(--err); }
+  .note { color:var(--mute); font-size:14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Researcher</h1>
+  <p class="note">Open past sessions, download the revision history, final emails and AI chats, export CSVs, or delete a participant's data.</p>
+  <div id="auth" hidden class="bar"><input id="key" placeholder="Researcher key" type="password"><button class="btn primary" id="keybtn">Unlock</button></div>
+  <div id="listview">
+    <div class="bar"><strong>Sessions</strong><span class="sp"></span>
+      <a class="btn" data-dl="all:events">All events CSV</a><a class="btn" data-dl="all:edits">All edits CSV</a><a class="btn" data-dl="all:json">All sessions JSON</a></div>
+    <table><thead><tr><th>PID</th><th>Order</th><th>Email 1</th><th>Email 2</th><th>Started</th></tr></thead><tbody id="rows"></tbody></table>
+    <p class="note" id="empty" hidden>No sessions yet. To see a demo: <code>node scripts/simulate.js DEMO</code></p>
+  </div>
+  <div id="sessview" hidden>
+    <div class="bar"><button class="btn" id="back">← All sessions</button><strong id="sesstitle"></strong><span class="sp"></span>
+      <a class="btn" data-dl="events">Events CSV</a><a class="btn" data-dl="edits">Edits CSV</a><a class="btn" data-dl="json">Session JSON</a>
+      <a class="btn" data-dl="chat">AI chats (text)</a><a class="btn" data-dl="emails">Final emails (text)</a><button class="btn danger" id="del">Delete this PID's data…</button></div>
+    <div class="tabsr" id="tabsr"></div>
+    <div id="rfilters" style="margin-bottom:14px"></div>
+    <div id="rview"></div>
+    <div id="rcmp" class="cmpgrid" hidden><div id="rL"></div><div id="rR"></div></div>
+  </div>
+</div>
+<script src="core.js"></script>
+<script src="analysis.js"></script>
+<script src="logview.js"></script>
+<script src="researcher.js"></script>
+</body>
+</html>

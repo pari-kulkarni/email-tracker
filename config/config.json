@@ -1,0 +1,23 @@
+{
+  "PAUSE_MS": 2000,
+  "SNAPSHOT_MS": 3000,
+  "EVENT_FLUSH_MS": 1000,
+  "AI_INSPIRED_MATCH_WORDS": 4,
+  "LARGE_CHANGE_WORDS": 8,
+
+  "AUTOCOMPLETE_PAUSE_MS": 700,
+  "AUTOCOMPLETE_MIN_CHARS": 8,
+  "AUTOCOMPLETE_MAX_WORDS": 6,
+  "AUTOCORRECT_LIST": {
+    "teh": "the", "recieve": "receive", "adress": "address", "seperate": "separate", "definately": "definitely",
+    "occured": "occurred", "wich": "which", "thier": "their", "becuase": "because", "untill": "until",
+    "alot": "a lot", "acommodate": "accommodate", "tommorow": "tomorrow", "wierd": "weird", "beleive": "believe"
+  },
+
+  "LLM_PROVIDER": "auto",
+  "LLM_MODEL": "claude-sonnet-5-5",
+  "CHAT_SYSTEM_PROMPT": "",
+  "CHAT_MAX_TOKENS": 1024,
+  "LLM_AUTOCOMPLETE_MODEL": "claude-haiku-5-5",
+  "LLM_AUTOCOMPLETE_SYSTEM_PROMPT": "You are an email autocomplete engine. The user message is the beginning of an email that is still being written. Reply with ONLY the next few words (at most 6) that would naturally continue it, with no quotes and no explanation. Start your reply with a space if the continuation begins a new word. If you are unsure, reply with nothing."
+}

@@ -1,0 +1,7 @@
+# Study data: never commit participant sessions or logs
+data/
+logs/
+# Dependencies / OS
+node_modules/
+.DS_Store
+*.tmp

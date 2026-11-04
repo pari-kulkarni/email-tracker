@@ -1,0 +1,12 @@
+{
+  "name": "aimc-email-study",
+  "private": true,
+  "description": "AI-mediated communication email study: writing app, logging, log view, researcher tools",
+  "scripts": {
+    "start": "node server.js",
+    "demo": "node scripts/simulate.js DEMO",
+    "test": "node test/core.test.js && node test/analysis.test.js && node test/api.test.js && node test/chat.test.js && node test/admin.test.js",
+    "test:browser": "node test/browser.test.js"
+  },
+  "devDependencies": { "puppeteer-core": "^25.16.0" }
+}

@@ -1,0 +1,18 @@
+{
+  "boss": {
+    "id": "S1",
+    "recipient_role": "Your boss",
+    "relationship": "PLACEHOLDER: Your direct supervisor, who you work with regularly.",
+    "to": "manager@company.example",
+    "subject": "PLACEHOLDER: Update on project",
+    "goal": "PLACEHOLDER: Scenario text for the boss email goes here."
+  },
+  "colleague": {
+    "id": "S2",
+    "recipient_role": "A colleague",
+    "relationship": "PLACEHOLDER: A peer on your team, at the same level as you.",
+    "to": "colleague@company.example",
+    "subject": "PLACEHOLDER: Update on project",
+    "goal": "PLACEHOLDER: Scenario text for the colleague email goes here."
+  }
+}
