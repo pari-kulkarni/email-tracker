@@ -1,0 +1,19 @@
+{
+  "supervisor": {
+    "id": "S1",
+    "recipient_role": "Your supervisor",
+    "relationship": "[Placeholder] You report directly to them and have worked together for about a year.",
+    "to": "manager@company.example",
+    "subject": "[Placeholder] Update on the quarterly report",
+    "goal": "[Placeholder] Let your supervisor know the report will be two days late and ask whether that works."
+  },
+  "colleague": {
+    "id": "S2",
+    "recipient_role": "Your colleague",
+    "relationship": "[Placeholder] You are on the same team at the same level and work together often.",
+    "to": "colleague@company.example",
+    "subject": "[Placeholder] Help with the client presentation",
+    "goal": "[Placeholder] Ask your colleague to take over part of the client presentation this week."
+  },
+  "privacy_reminder": "This is a made-up scenario. Please don't type real names or confidential details about your own workplace."
+}

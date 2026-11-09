@@ -72,6 +72,42 @@
   .pause { text-align:center; color:var(--mute); font-size:12px; border-top:1px dashed var(--line); border-bottom:1px dashed var(--line); padding:3px 0; }
   .pause.long { color:#b06000; font-weight:600; }
   .tabrow { text-align:center; color:var(--mute); font-size:12px; }
+
+  /* Email body + autocomplete overlay: a mirror div behind the transparent textarea shows the grey suggestion */
+  .bodywrap { position:relative; flex:1; min-height:0; }
+  .bodywrap textarea, .bodywrap .mirror { position:absolute; top:0; left:0; height:100%; margin:0; border:0; padding:14px;
+    font:inherit; line-height:1.5; letter-spacing:normal; white-space:pre-wrap; overflow-wrap:break-word; word-break:normal; tab-size:8; }
+  .bodywrap textarea { width:100%; z-index:1; background:transparent; }
+  .bodywrap .mirror { color:transparent; pointer-events:none; overflow:hidden; z-index:0; }
+  .mirror .ghost { color:var(--mute); }
+
+  /* Source colours (log view) */
+  .b-spellcheck{background:#1a73e8} .b-autocomplete{background:#00796b} .b-ac{background:#00796b}
+  .final { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; white-space:pre-wrap; word-break:break-word; }
+  .src-ai { background:color-mix(in srgb, #c2185b 22%, transparent); }
+  .src-ai.edited { outline:1px dashed #c2185b; }
+  .src-autocomplete { background:color-mix(in srgb, #00796b 25%, transparent); }
+  .src-spellcheck { background:color-mix(in srgb, #1a73e8 25%, transparent); }
+  .src-unknown { background:color-mix(in srgb, #b3261e 25%, transparent); text-decoration:underline wavy #b3261e; }
+  /* Scenario card: visible on both tabs while writing */
+  .scenario { max-width:760px; width:calc(100% - 32px); margin:12px auto 0; background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:8px; padding:10px 14px; font-size:13px; }
+  .scenario h3 { margin:0 0 4px; font-size:14px; }
+  .scenario dl { margin:0; display:grid; grid-template-columns:max-content 1fr; gap:2px 12px; }
+  .scenario dt { color:var(--mute); }
+  .scenario dd { margin:0; }
+  .scenario .privacy { margin-top:6px; color:var(--mute); font-size:12px; }
+  /* Log view filters: none selected = show everything */
+  .filters { display:flex; gap:6px; flex-wrap:wrap; align-items:center; font-size:12px; }
+  .filters .lbl { color:var(--mute); margin-right:2px; }
+  .chip { border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:14px; padding:3px 10px; font:inherit; cursor:pointer; }
+  .chip:hover { background:var(--bg); }
+  .chip[aria-pressed="true"] { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); font-weight:600; }
+  .chip .sw { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; border:1px solid var(--line); }
+  .chip.clear { color:var(--accent); border-style:dashed; }
+  .sw-deleted { background:#b3261e; } .sw-chat { background:#0b57d0; } .sw-other { background:#7b1fa2; }
+  .final .dim { opacity:.3; background:none; outline:none; text-decoration:none; }
+  .nomatch { color:var(--mute); text-align:center; padding:12px; }
+  .b-aiedit { background:#880e4f; }
 </style>
 </head>
 <body>
@@ -81,13 +117,25 @@
   <button class="tab" data-tab="chat">Assistant</button>
   <span class="sp"></span>
 </header>
+<div class="scenario" id="scenario" hidden>
+  <h3 id="sc-title"></h3>
+  <dl>
+    <dt>Relationship</dt><dd id="sc-rel"></dd>
+    <dt>Subject</dt><dd id="sc-subj"></dd>
+    <dt>Your goal</dt><dd id="sc-goal"></dd>
+  </dl>
+  <div class="privacy" id="sc-privacy"></div>
+</div>
 <main>
   <section class="view active" id="view-mail">
     <div class="compose">
       <div class="bar">New Message</div>
       <div class="row"><label>To</label><input id="to" autocomplete="off"></div>
       <div class="row"><label>Subject</label><input id="subject" autocomplete="off"></div>
-      <textarea id="body" placeholder="Write your email here…" spellcheck="true"></textarea>
+      <div class="bodywrap">
+        <div class="mirror" id="mirror" aria-hidden="true"></div>
+        <textarea id="body" placeholder="Write your email here…" spellcheck="true"></textarea>
+      </div>
       <div class="foot">
         <button class="btn primary" id="send">Send</button>
         <span class="sentbanner" id="sentbanner"></span>
@@ -109,7 +157,7 @@
 </main>
 
 <div id="logview">
-  <div class="top"><h2>Activity log</h2><button class="btn" id="export">Export JSON</button><button class="btn" id="closelog">Close</button></div>
+  <div class="top"><h2>Activity log</h2><button class="btn" id="dl-report">Download report</button><button class="btn" id="dl-edits">Edits CSV</button><button class="btn" id="dl-events">Events CSV</button><button class="btn" id="export">JSON</button><button class="btn" id="closelog">Close</button></div>
   <div id="logbody"></div>
 </div>
 <div class="toast" id="toast"></div>
@@ -120,6 +168,9 @@ const params = new URLSearchParams(location.search);
 const PID = params.get('pid') || 'anon';
 const SID = Math.random().toString(36).slice(2, 8);
 const START = Date.now();
+// Autocomplete settings: wait this long after typing stops, suggest at most this many words,
+// and only once the draft has at least minWords words.
+const AC = { delayMs: 600, maxWords: 5, minWords: 2 };
 
 // ---------- Event log (mirrored to server -> logs/<pid>.jsonl) ----------
 const events = [];
@@ -165,15 +216,89 @@ const norm = s => s.replace(/\s+/g, ' ').trim();
 // ---------- Draft state, revisions, timeline ----------
 const fields = { to: $('#to'), subject: $('#subject'), body: $('#body') };
 const draft = { to: '', subject: '', body: '' };
-const timeline = [];       // chronological: rev | pause | tab | prompt | reply
-const aiReplies = [];      // normalized assistant texts, to detect "pasted from AI"
+const timeline = [];       // chronological: rev | pause | tab | prompt | reply | ac
+const aiReplies = [];      // { id: 'R1', norm: normalized text }, to link pastes to the reply they came from
 const PAUSE_MS = 1500;     // idle gap that counts as a pause and ends a typing burst
 let openRev = null, revCount = 0, lastEditAt = START, firstEdit = true;
 let currentTab = 'mail', tabSince = START, awayInChat = false, sent = false;
 
+// ---------- Per-character source labels ----------
+// One label per character of each field, kept in step with the text on every input:
+//   'typed' | 'spellcheck' | 'autocomplete|S3' | 'ai|R2|P1' (reply R2, paste P1) | 'unknown'
+const labels = { to: [], subject: [], body: [] };
+const labelHistory = { to: new Map([['', []]]), subject: new Map([['', []]]), body: new Map([['', []]]) }; // text -> labels, restores labels on undo/redo
+const aiPastes = {};       // P1 -> { reply: 'R2', edited: false }
+let pasteCount = 0;
+let clip = null;           // last in-app copy/cut: { text, labels? } from the email, or { text, replyId? } from the chat
+let dragClip = null;       // text dragged within a field: { text, labels }
+const findReply = text => { const t = norm(text); return t ? aiReplies.find(r => r.norm.includes(t)) : null; };
+const pasteOf = k => (k && k.startsWith('ai|')) ? k.split('|')[2] : null;
+
+function newAiPaste(replyId, n) {
+  const p = 'P' + (++pasteCount);
+  aiPastes[p] = { reply: replyId, edited: false };
+  return Array(n).fill(`ai|${replyId}|${p}`);
+}
+function insertLabels(source, d, meta) {
+  const n = d.ins.length; if (!n) return [];
+  const fill = k => Array(n).fill(k);
+  if (meta.acId) return fill('autocomplete|' + meta.acId);
+  if (source === 'typed') return fill('typed');
+  if (source === 'spellcheck') return fill('spellcheck');
+  if (source === 'pasted') {
+    const c = meta.inputType === 'insertFromDrop' ? dragClip : clip;
+    if (c?.labels && c.text === d.ins) return c.labels.slice();               // moved/copied within the draft: keeps its labels
+    if (c?.replyId && norm(c.text) === norm(d.ins)) return newAiPaste(c.replyId, n);
+    const r = findReply(d.ins); if (r) return newAiPaste(r.id, n);
+    return fill('unknown');                                                    // came from outside the app
+  }
+  return fill('unknown');                                                      // e.g. undo/redo with no stored state
+}
+// Exact edit range from the selection captured in beforeinput; falls back to a prefix/suffix diff
+// (spellcheck replacements, undo/redo) when the selection doesn't explain the change.
+function editDelta(prev, next, sel, type) {
+  if (sel) {
+    let [a, b] = sel; const k = prev.length - next.length;
+    if (a === b && type) {
+      if (/^delete.*Backward$/.test(type)) a = b - k;
+      else if (/^delete.*Forward$/.test(type)) b = a + k;
+    }
+    if (a >= 0 && a <= b && b <= prev.length) {
+      const ins = next.slice(a, next.length - (prev.length - b));
+      if (prev.slice(0, a) + ins + prev.slice(b) === next) return { pos: a, del: prev.slice(a, b), ins };
+    }
+  }
+  return charDelta(prev, next);
+}
+// Runs of equal labels -> [{start, end, source, reply_id?, paste_id?, suggestion_id?}]
+function compressLabels(L) {
+  const runs = [];
+  L.forEach((k, i) => { const r = runs[runs.length - 1]; if (r && r.key === k) r.end = i + 1; else runs.push({ key: k, start: i, end: i + 1 }); });
+  return runs.map(({ key, start, end }) => {
+    const [source, a, b] = key.split('|'), r = { start, end, source };
+    if (source === 'ai') { r.reply_id = a; r.paste_id = b; }
+    if (source === 'autocomplete') r.suggestion_id = a;
+    return r;
+  });
+}
+// AI-pasted spans that a human changed: first to last surviving character of that paste
+function aiEditedSpans(L) {
+  const spans = {};
+  L.forEach((k, i) => {
+    const p = pasteOf(k); if (!p || !aiPastes[p].edited) return;
+    (spans[p] ||= { start: i, paste_id: p, reply_id: aiPastes[p].reply }).end = i + 1;
+  });
+  return Object.values(spans);
+}
+function rememberLabels(field, val) {
+  const m = labelHistory[field]; m.delete(val); m.set(val, labels[field].slice());
+  if (m.size > 500) m.delete(m.keys().next().value);
+}
+
 function sourceOf(t) {
   if (!t) return 'other';
-  if (t === 'insertFromPaste' || t === 'insertFromDrop' || t === 'insertFromYank') return 'pasted';
+  if (t === 'insertFromPaste' || t === 'insertFromDrop' || t === 'insertFromYank' || t === 'insertFromPasteAsQuotation') return 'pasted';
+  if (t === 'insertReplacementText') return 'spellcheck';
   if (t === 'deleteByCut') return 'cut';
   if (t.startsWith('delete')) return 'deleted';
   if (t === 'historyUndo' || t === 'historyRedo') return 'undo';
@@ -195,34 +320,165 @@ function notePause(now) {
 }
 function recordChange(field, newVal, source, meta = {}) {
   const prev = draft[field];
-  if (newVal === prev) return;
+  if (newVal === prev) return null;
   const now = Date.now();
   notePause(now);
-  const d = charDelta(prev, newVal);
-  logEvent('edit', { field, source, inputType: meta.inputType || null, fromAI: !!meta.fromAI, ...d });
-  if (!(openRev && openRev.field === field && openRev.source === source)) {
-    openRev = { kind:'rev', id: ++revCount, field, source, startedAt: now, endedAt: now, before: prev, after: newVal, edits: 0, fromAI: false };
+  const d = editDelta(prev, newVal, meta.sel, meta.inputType);
+  const L = labels[field];
+  const delLabels = L.slice(d.pos, d.pos + d.del.length);
+  const restored = source === 'undo' ? labelHistory[field].get(newVal) : null;
+  const insL = restored ? null : insertLabels(source, d, meta);
+  // A human change inside an AI paste (deleting any of its characters, or inserting between two of them)
+  // marks that paste as an AI-edited span.
+  let aiEdit = false;
+  if (!restored && !meta.acId) {
+    const touched = new Set(delLabels.map(pasteOf).filter(Boolean));
+    // inside = the nearest AI character on each side belongs to the same paste (so typing next to
+    // characters the participant already added inside the AI text still counts as inside it)
+    let i = d.pos - 1, j = d.pos + d.del.length;
+    while (i >= 0 && !pasteOf(L[i])) i--;
+    while (j < L.length && !pasteOf(L[j])) j++;
+    const left = pasteOf(L[i]), right = pasteOf(L[j]);
+    if (d.ins && left && left === right && !insL.some(k => pasteOf(k) === left)) touched.add(left);
+    touched.forEach(p => { aiPastes[p].edited = true; });
+    aiEdit = touched.size > 0;
+  }
+  labels[field] = restored ? restored.slice() : [...L.slice(0, d.pos), ...insL, ...L.slice(d.pos + d.del.length)];
+  if (labels[field].length !== newVal.length) {           // safety net: never let labels drift from the text
+    logEvent('label_mismatch', { field, labels: labels[field].length, chars: newVal.length });
+    labels[field] = labels[field].slice(0, newVal.length).concat(Array(Math.max(0, newVal.length - labels[field].length)).fill('unknown'));
+  }
+  rememberLabels(field, newVal);
+  const fromAI = !!insL?.some(k => k.startsWith('ai|'));
+  logEvent('edit', { field, source, inputType: meta.inputType || null, fromAI, aiEdit, ...d,
+    insSources: restored ? 'restored' : compressLabels(insL),
+    ...(d.del ? { delSources: compressLabels(delLabels), by: 'human' } : {}) });
+  // a new revision starts when the field, the source, or "editing inside AI text" changes;
+  // every paste and every accepted suggestion is a revision of its own
+  const ownRev = source === 'pasted' || source === 'autocomplete';
+  if (ownRev || !(openRev && openRev.field === field && openRev.source === source && openRev.aiEdit === aiEdit)) {
+    openRev = { kind:'rev', id: ++revCount, field, source, aiEdit, startedAt: now, endedAt: now, before: prev, after: newVal, edits: 0, fromAI: false, insChars: '', delChars: '' };
     timeline.push(openRev);
   }
   openRev.after = newVal; openRev.endedAt = now; openRev.edits++;
-  if (meta.fromAI) openRev.fromAI = true;
+  openRev.insChars += d.ins; openRev.delChars += d.del;    // exact characters, in the order they happened
+  if (fromAI) openRev.fromAI = true;
   draft[field] = newVal; lastEditAt = now; firstEdit = false; awayInChat = false;
   updateWC();
+  return { ...d, delLabels };
 }
 for (const [f, el] of Object.entries(fields)) {
-  let lastType = null, pasted = '';
-  el.addEventListener('beforeinput', e => {
-    lastType = e.inputType;
-    pasted = (e.inputType === 'insertFromPaste' || e.inputType === 'insertFromDrop') ? (e.dataTransfer?.getData('text/plain') || '') : '';
-  });
+  let lastType = null, sel = null;
+  el.addEventListener('beforeinput', e => { lastType = e.inputType; sel = [el.selectionStart, el.selectionEnd]; });
   el.addEventListener('input', e => {
-    const type = e.inputType || lastType, p = norm(pasted);
-    const fromAI = !!p && aiReplies.some(r => r.includes(p));
-    recordChange(f, el.value, sourceOf(type), { inputType: type, fromAI });
-    pasted = '';
+    const type = e.inputType || lastType;
+    const acId = f === 'body' ? ac.accepting : null;
+    const d = recordChange(f, el.value, acId ? 'autocomplete' : sourceOf(type), { inputType: type, sel, acId });
+    sel = null;
+    if (type === 'deleteByDrag' && d) dragClip = { text: d.del, labels: d.delLabels };
+    if (f === 'body') ac.afterInput(d);
   });
   el.addEventListener('blur', () => { openRev = null; });
 }
+
+// ---------- Autocomplete: Smart Compose-style grey text drawn by a mirror div behind the textarea ----------
+const mirror = $('#mirror'), bodyEl = fields.body;
+function cleanSuggestion(s, body) {
+  s = String(s || '').trim().split('\n')[0].replace(/^["“”]+|["“”]+$/g, '');
+  const words = s.trim().split(/\s+/).filter(Boolean).slice(0, AC.maxWords).join(' ');
+  if (!words) return '';
+  return /\s$/.test(body) ? words : ' ' + words;
+}
+const ac = {
+  timer: null, ctrl: null, seq: 0, count: 0, accepting: null,
+  cur: null,   // { id, text, matched, shownAt, pos }: the suggestion on screen; `matched` = chars of it typed by hand
+  render() {
+    const g = this.cur ? this.cur.text.slice(this.cur.matched) : '';
+    const ghost = document.createElement('span'); ghost.className = 'ghost'; ghost.textContent = g;
+    mirror.replaceChildren(document.createTextNode(bodyEl.value), ghost);
+    mirror.style.width = bodyEl.clientWidth + 'px';      // excludes the textarea's scrollbar so lines wrap identically
+    mirror.scrollTop = bodyEl.scrollTop;
+  },
+  atEnd() {
+    const n = bodyEl.value.length;
+    return document.activeElement === bodyEl && bodyEl.selectionStart === n && bodyEl.selectionEnd === n;
+  },
+  schedule() {
+    clearTimeout(this.timer);
+    if (this.ctrl) { this.ctrl.abort(); this.ctrl = null; }
+    if (sent || this.cur) return;
+    this.timer = setTimeout(() => this.request(), AC.delayMs);
+  },
+  async request() {
+    const text = bodyEl.value;
+    // only at the end of the text, and only at a word boundary so the suggestion never has to finish a half-typed word
+    if (sent || this.cur || !this.atEnd() || countWords(text) < AC.minWords || !/[\s.,!?;:]$/.test(text)) return;
+    const seq = ++this.seq, ctrl = this.ctrl = new AbortController();
+    try {
+      const r = await fetch('/api/complete', { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ subject: draft.subject, body: text }), signal: ctrl.signal });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Request failed');
+      if (this.ctrl === ctrl) this.ctrl = null;
+      const s = cleanSuggestion(data.text, text);
+      if (!s) return;
+      if (seq !== this.seq || bodyEl.value !== text || !this.atEnd() || sent || this.cur) {
+        logEvent('autocomplete_dropped', { text: s, reason: 'stale' }); return;
+      }
+      this.cur = { id: 'S' + (++this.count), text: s, matched: 0, shownAt: Date.now(), pos: text.length };
+      logEvent('autocomplete_shown', { suggestion_id: this.cur.id, text: s, pos: text.length, model: data.model });
+      this.render();
+    } catch (err) {
+      if (err.name === 'AbortError') logEvent('autocomplete_dropped', { reason: 'kept_typing' });
+      else logEvent('autocomplete_error', { error: String(err.message || err) });
+    }
+  },
+  end(outcome, reason, extra = {}) {
+    const c = this.cur; if (!c) return;
+    this.cur = null;
+    const e = { suggestion_id: c.id, text: c.text, outcome, reason, kept: c.text.slice(0, c.matched), visibleMs: Date.now() - c.shownAt, ...extra };
+    logEvent(outcome === 'accepted' ? 'autocomplete_accepted' : 'autocomplete_dismissed', e);
+    timeline.push({ kind:'ac', at: Date.now(), ...e });
+    this.render();
+  },
+  dismiss(reason) { if (this.cur) this.end(this.cur.matched ? 'partial' : 'dismissed', reason); },
+  accept() {
+    const c = this.cur, rest = c.text.slice(c.matched);
+    this.accepting = c.id;
+    // execCommand keeps the browser's own undo stack (Ctrl+Z removes the accepted words) and fires input events
+    if (!document.execCommand('insertText', false, rest)) {
+      const n = bodyEl.value.length;
+      bodyEl.setRangeText(rest, n, n, 'end');
+      bodyEl.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: rest }));
+    }
+    this.accepting = null;
+    this.end('accepted', 'tab', { inserted: rest });
+    this.schedule();
+  },
+  afterInput(d) {
+    const c = this.cur;
+    if (c && !this.accepting) {
+      const rest = c.text.slice(c.matched);
+      // typing the same characters the suggestion shows keeps it on screen (as in Gmail)
+      if (d && !d.del && d.ins && d.pos + d.ins.length === draft.body.length && rest.startsWith(d.ins)) {
+        c.matched += d.ins.length;
+        if (c.matched >= c.text.length) this.end('typed_through', 'typed');
+      } else this.dismiss(d && d.del && !d.ins ? 'deleted' : 'typed_other');
+    }
+    this.render();
+    if (!this.accepting) this.schedule();
+  },
+};
+bodyEl.addEventListener('keydown', e => {
+  if (!ac.cur) return;
+  if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && ac.atEnd()) { e.preventDefault(); ac.accept(); }
+  else if (e.key === 'Escape') { e.preventDefault(); ac.dismiss('esc'); }
+  else if (/^(Arrow|Home|End|Page)/.test(e.key)) ac.dismiss('cursor_moved');
+});
+bodyEl.addEventListener('mousedown', () => ac.dismiss('cursor_moved'));
+bodyEl.addEventListener('blur', () => { clearTimeout(ac.timer); ac.dismiss('blur'); });
+bodyEl.addEventListener('scroll', () => { mirror.scrollTop = bodyEl.scrollTop; });
+addEventListener('resize', () => ac.render());
 const updateWC = () => { $('#wc').textContent = `${countWords(draft.body)} words`; };
 
 // ---------- Tabs ----------
@@ -250,11 +506,27 @@ chatin.addEventListener('beforeinput', e => {
 });
 chatin.addEventListener('input', () => { chatin.style.height = 'auto'; chatin.style.height = Math.min(chatin.scrollHeight, 220) + 'px'; });
 chatin.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#sendChat').click(); } });
-// log any copy action (selection from the chat or elsewhere)
-document.addEventListener('copy', () => {
-  const text = String(getSelection());
-  if (text) logEvent('copy', { tab: currentTab, chars: text.length, fromAI: aiReplies.some(r => r.includes(norm(text))), text });
-});
+// Log every copy/cut, and remember what was copied so the next paste can carry the right labels:
+// copied email text keeps its per-character labels; copied chat text is linked to the AI reply it came from.
+function onCopy(e) {
+  const t = e.target;
+  if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) {
+    const a = t.selectionStart, b = t.selectionEnd, text = t.value.slice(a, b);
+    if (!text) return;
+    const f = Object.keys(fields).find(k => fields[k] === t);
+    clip = f ? { text, labels: labels[f].slice(a, b) } : { text };
+    logEvent(e.type, { tab: currentTab, field: f || 'chat_input', chars: text.length, text });
+    return;
+  }
+  const s = getSelection(), text = String(s);
+  if (!text) return;
+  const node = s.anchorNode && (s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentElement);
+  const replyId = node?.closest('.msg.assistant')?.dataset.rid || findReply(text)?.id || null;
+  clip = { text, replyId };
+  logEvent(e.type, { tab: currentTab, chars: text.length, replyId, fromAI: !!replyId, text });
+}
+document.addEventListener('copy', onCopy);
+document.addEventListener('cut', onCopy);
 
 function addMsg(role, text) {
   $('#hint')?.remove();
@@ -272,21 +544,56 @@ $('#sendChat').onclick = async () => {
     const r = await fetch('/api/chat', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ messages: history }) });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Request failed');
-    history.push({ role:'assistant', content:data.text }); aiReplies.push(norm(data.text));
-    timeline.push({ kind:'reply', at: Date.now(), text: data.text });
-    logEvent('chat_response', { text: data.text, model: data.model });
-    pending.body.textContent = data.text;
+    const rid = 'R' + (aiReplies.length + 1);
+    history.push({ role:'assistant', content:data.text }); aiReplies.push({ id: rid, norm: norm(data.text) });
+    timeline.push({ kind:'reply', at: Date.now(), id: rid, text: data.text });
+    logEvent('chat_response', { reply_id: rid, text: data.text, model: data.model });
+    pending.body.textContent = data.text; pending.el.dataset.rid = rid;
     const tools = document.createElement('div'); tools.className = 'tools';
     const cp = document.createElement('button'); cp.textContent = '⧉ Copy';
-    cp.onclick = () => { navigator.clipboard.writeText(data.text); logEvent('copy_button', { chars: data.text.length }); cp.textContent = '✓ Copied'; };
+    cp.onclick = () => { navigator.clipboard.writeText(data.text); clip = { text: data.text, replyId: rid }; logEvent('copy_button', { reply_id: rid, chars: data.text.length }); cp.textContent = '✓ Copied'; };
     tools.appendChild(cp); pending.el.appendChild(tools);
   } catch (err) { pending.body.textContent = '⚠️ ' + err.message; history.pop(); }
 };
 
 // ---------- Send + researcher log view ----------
-const snapshot = () => ({ pid: PID, sid: SID, startedAt: START, finalDraft: draft, timeline, events });
+// ---------- Scenario card (text comes from scenarios.json; condition from ?cond=supervisor|colleague) ----------
+const CONDITION = params.get('cond') === 'colleague' ? 'colleague' : 'supervisor';
+let scenario = null;
+async function loadScenario() {
+  try {
+    const all = await (await fetch('/scenarios.json')).json();
+    scenario = all[CONDITION];
+    $('#sc-title').textContent = `Writing to: ${scenario.recipient_role}`;
+    $('#sc-rel').textContent = scenario.relationship;
+    $('#sc-subj').textContent = scenario.subject;
+    $('#sc-goal').textContent = scenario.goal;
+    $('#sc-privacy').textContent = all.privacy_reminder || '';
+    $('#scenario').hidden = false;
+    // Pre-fill To (read-only) and Subject; these characters are labelled 'prefilled'
+    for (const f of ['to', 'subject']) {
+      fields[f].value = draft[f] = scenario[f];
+      labels[f] = Array(scenario[f].length).fill('prefilled');
+      rememberLabels(f, scenario[f]);
+    }
+    fields.to.readOnly = true;
+    logEvent('scenario_shown', { condition: CONDITION, scenario_id: scenario.id, scenario });
+  } catch (err) {
+    logEvent('scenario_error', { error: String(err.message || err) });
+    toast('Could not load the scenario. Please tell the researcher.');
+  }
+}
+
+const snapshot = () => ({
+  pid: PID, sid: SID, startedAt: START, condition: CONDITION, scenario_id: scenario?.id || null, scenario, finalDraft: draft,
+  char_labels: { to: compressLabels(labels.to), subject: compressLabels(labels.subject), body: compressLabels(labels.body) },
+  ai_edited_spans: aiEditedSpans(labels.body),
+  ai_replies: aiReplies.map(r => ({ reply_id: r.id, used: Object.values(aiPastes).some(p => p.reply === r.id) })),
+  timeline, events,
+});
 $('#send').onclick = async () => {
   if (sent) return;
+  clearTimeout(ac.timer); ac.dismiss('send');
   notePause(Date.now());
   sent = true; logEvent('send_email', { ...draft });
   Object.values(fields).forEach(el => el.disabled = true);
@@ -295,19 +602,131 @@ $('#send').onclick = async () => {
   $('#showlog').style.display = '';
   // Save the full revision history + final draft as one file, then flush the event stream.
   try {
-    const r = await fetch('/api/submit', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(snapshot()) });
-    if (!r.ok) throw new Error();
+    const r = await fetch('/api/submit', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({
+      pid: PID, sid: SID, session: snapshot(), report: buildReport(),
+      edits_csv: toCSV(EDIT_COLS, editsRows()), events_csv: toCSV(EVENT_COLS, eventsRows()),
+    }) });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error);
+    $('#sentbanner').textContent = `Sent ✓ Saved to ${data.saved}`;
     await flush();
   } catch {
-    $('#sentbanner').textContent = 'Sent ✓ (log save failed — use Export JSON in the log view)';
+    $('#sentbanner').textContent = 'Sent ✓ (saving failed — use the download buttons in the log view)';
   }
 };
 $('#showlog').onclick = () => { renderLog(); $('#logview').classList.add('open'); };
 $('#closelog').onclick = () => $('#logview').classList.remove('open');
-$('#export').onclick = () => {
-  const blob = new Blob([JSON.stringify(snapshot(), null, 2)], { type:'application/json' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${PID}-${SID}.json`; a.click();
+function download(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const fileBase = () => `${PID}-${SID}`;
+$('#export').onclick = () => download(`${fileBase()}-session.json`, JSON.stringify(snapshot(), null, 2), 'application/json');
+$('#dl-report').onclick = () => download(`${fileBase()}-report.html`, buildReport(), 'text/html');
+$('#dl-edits').onclick = () => download(`${fileBase()}-edits.csv`, toCSV(EDIT_COLS, editsRows()), 'text/csv');
+$('#dl-events').onclick = () => download(`${fileBase()}-events.csv`, toCSV(EVENT_COLS, eventsRows()), 'text/csv');
+
+// ---------- Readable exports: HTML report + CSVs (all generated from the same data as the JSON) ----------
+function csvCell(v) {
+  if (v === null || v === undefined) return '';
+  let s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  if (typeof v === 'string' && /^([=+@\t\r]|-[^\s\d])/.test(s)) s = "'" + s;   // stop Excel treating text as a formula
+  return /[",\r\n]/.test(s) || s !== s.trim() ? `"${s.replace(/"/g, '""')}"` : s;
+}
+// BOM so Excel opens the file as UTF-8 (curly quotes, accents, emoji)
+const toCSV = (cols, rows) => '﻿' + [cols.join(','), ...rows.map(r => cols.map(c => csvCell(r[c])).join(','))].join('\r\n') + '\r\n';
+
+const EDIT_COLS = ['pid', 'session_id', 'condition', 'scenario_id', 'revision', 'field', 'source', 'inside_ai_text', 'filter_categories',
+  'change_kind', 'change_size', 'words_added', 'words_removed', 'added_text', 'removed_text', 'chars_inserted', 'chars_deleted',
+  'start_ms', 'end_ms', 'duration_ms', 'pause_before_ms', 'edit_count', 'start_time'];
+// One row per revision (a burst of same-source edits), as in the log view.
+// change_size: small = one word or less; large = adds/removes a whole sentence or 8+ words; otherwise medium.
+function editsRows() {
+  let prevEnd = START;
+  return timeline.filter(x => x.kind === 'rev').map(x => {
+    const ops = wordDiff(x.before, x.after), st = diffStats(ops);
+    const pick = t => ops.filter(o => o.t === t).map(o => o.s.trim()).filter(Boolean).join(' … ');
+    const added = pick('ins'), removed = pick('del');
+    const kind = added && removed ? 'replacement' : added ? 'addition' : removed ? 'deletion' : 'whitespace';
+    const words = Math.max(st.add, st.rem);
+    const size = words <= 1 ? 'small' : (words >= 8 || /[.!?](\s|$)/.test(added + ' ' + removed) && words >= 3) ? 'large' : 'medium';
+    const row = {
+      pid: PID, session_id: SID, condition: CONDITION, scenario_id: scenario?.id || '',
+      revision: x.id, field: x.field,
+      source: x.source === 'pasted' ? (x.fromAI ? 'ai' : 'unknown') : x.source,
+      inside_ai_text: x.aiEdit ? 'yes' : 'no', filter_categories: entryCats(x).join(' '),
+      change_kind: kind, change_size: size, words_added: st.add, words_removed: st.rem, added_text: added, removed_text: removed,
+      chars_inserted: x.insChars, chars_deleted: x.delChars,
+      start_ms: x.startedAt - START, end_ms: x.endedAt - START, duration_ms: x.endedAt - x.startedAt,
+      pause_before_ms: x.startedAt - prevEnd, edit_count: x.edits, start_time: new Date(x.startedAt).toISOString(),
+    };
+    prevEnd = x.endedAt;
+    return row;
+  });
+}
+const EVENT_COLS = ['pid', 'session_id', 'condition', 't_ms', 'time', 'type', 'field', 'source', 'pos', 'inserted', 'deleted',
+  'text', 'reply_id', 'suggestion_id', 'outcome', 'reason', 'model', 'details'];
+// One row per raw event; anything that doesn't have its own column goes into `details` as JSON.
+function eventsRows() {
+  return events.map(e => {
+    const { t, sid, type, field, source, pos, ins, del, text, reply_id, replyId, suggestion_id, outcome, reason, model, ...rest } = e;
+    return { pid: PID, session_id: SID, condition: CONDITION, t_ms: t - START, time: new Date(t).toISOString(), type, field, source, pos,
+      inserted: ins, deleted: del, text, reply_id: reply_id || replyId, suggestion_id, outcome, reason, model,
+      details: Object.keys(rest).length ? rest : '' };
+  });
+}
+
+// A single self-contained HTML page: scenario, colour-coded email, full revision history with working filters,
+// and the AI chat as a transcript. Opens offline in any browser; prints to PDF.
+function buildReport() {
+  const keep = [...activeFilters];
+  activeFilters.clear(); renderLog();                      // the report always starts unfiltered
+  const log = $('#logbody').innerHTML;
+  keep.forEach(f => activeFilters.add(f)); renderLog();
+  const used = id => Object.values(aiPastes).some(p => p.reply === id);
+  const chat = timeline.filter(x => x.kind === 'prompt' || x.kind === 'reply').map(x => x.kind === 'prompt'
+    ? `<div class="msg user"><div class="meta">${TIME(x.at)} · Participant prompt</div>${esc(x.text)}</div>`
+    : `<div class="msg assistant"><div class="meta">${TIME(x.at)} · AI reply ${x.id} · ${used(x.id) ? 'used (pasted into the email)' : '<b>not used</b>'}</div>${esc(x.text)}</div>`
+  ).join('') || '<p class="stat">No AI chat in this session.</p>';
+  const sc = scenario || {};
+  const css = document.querySelector('style').textContent;
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(PID)} · ${CONDITION} · session report</title>
+<style>${css}
+  body { height:auto; display:block; padding:24px 16px; }
+  .report { max-width:900px; margin:0 auto; display:flex; flex-direction:column; gap:10px; }
+  .report h1 { font-size:20px; margin:0; } .report h2 { font-size:16px; margin:18px 0 2px; }
+  .report .scenario { margin:0; width:auto; max-width:none; }
+  .chatlog { display:flex; flex-direction:column; gap:8px; } .chatlog .msg { max-width:85%; }
+  @media print { .filters { display:none; } body { padding:0; } }
+</style></head><body><div class="report">
+<h1>Session report: ${esc(PID)}</h1>
+<div class="stat">Condition: <b>${CONDITION}</b> · Scenario ${esc(sc.id || '?')} · Session ${SID} · Started ${new Date(START).toLocaleString()} · Report generated ${new Date().toLocaleString()}</div>
+<h2>Scenario shown</h2>
+<div class="scenario"><h3>Writing to: ${esc(sc.recipient_role || '')}</h3><dl>
+  <dt>Relationship</dt><dd>${esc(sc.relationship || '')}</dd><dt>Subject</dt><dd>${esc(sc.subject || '')}</dd><dt>Goal</dt><dd>${esc(sc.goal || '')}</dd></dl></div>
+<h2>Final email</h2>
+<div class="card"><b>To:</b> ${esc(draft.to)}<br><b>Subject:</b> ${esc(draft.subject)}</div>
+<h2>Revision history</h2>
+<div class="stat">The coloured email below is the final body. Use the chips to show only certain kinds of changes.</div>
+${log}
+<h2>AI chat transcript</h2>
+<div class="chatlog">${chat}</div>
+</div>
+<script>
+const active = new Set();
+${applyFilterSet.toString()}
+document.getElementById('filters').onclick = e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  const f = b.dataset.f;
+  if (!f) active.clear(); else if (active.has(f)) active.delete(f); else active.add(f);
+  applyFilterSet(active, document);
 };
+<\/script></body></html>`;
+}
 
 const TIME = ms => new Date(ms).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
 const SEC = ms => (ms / 1000).toFixed(1) + 's';
@@ -321,20 +740,95 @@ function renderLog() {
   $('#logbody').innerHTML = `<div id="summary"><b>${esc(PID)}</b> · session ${SID} · ${SEC(Date.now() - START)} total<br>
     ${revs} revisions · typed ${ed.filter(e=>e.source==='typed').reduce((n,e)=>n+e.ins.length,0)} chars · pasted ${ed.filter(e=>e.source==='pasted').reduce((n,e)=>n+e.ins.length,0)} chars (${aiPaste} from AI) · deleted ${ed.reduce((n,e)=> n + (e.source==='typed'||e.source==='pasted' ? 0 : e.del.length),0)} chars<br>
     ${pauses.length} pauses ≥ ${PAUSE_MS/1000}s (total ${SEC(pauses.reduce((n,p)=>n+p.ms,0))}, longest ${SEC(longest)}) · ${history.filter(m=>m.role==='user').length} prompts to AI</div>` +
+  `<div class="filters" id="filters"><span class="lbl">Show:</span>${FILTERS.map(f =>
+      `<button class="chip" data-f="${f.key}" aria-pressed="${activeFilters.has(f.key)}"><span class="sw ${f.sw}"></span>${f.label}</button>`).join('')}
+    <button class="chip clear" data-f="">Show all</button></div>` +
+  `<div class="final">${finalEmailHTML() || '<i>(empty)</i>'}</div>` +
   timeline.map(x => {
-    if (x.kind === 'pause') return `<div class="pause ${x.ms > 10000 ? 'long' : ''}">⏸ ${x.first ? 'Waited' : 'Paused'} ${SEC(x.ms)}${x.first ? ' before first edit' : ''} · ${TIME(x.at)} · ${x.where}</div>`;
-    if (x.kind === 'tab') return `<div class="tabrow">↔ ${TIME(x.at)} switched ${x.from} → ${x.to} (was in ${x.from} for ${SEC(x.spent)})</div>`;
-    if (x.kind === 'prompt') return `<div class="card"><div class="meta"><span class="badge b-prompt">Prompt to AI</span><span>${TIME(x.at)}</span></div><div class="plain">${esc(x.text)}</div></div>`;
-    if (x.kind === 'reply') return `<div class="card"><div class="meta"><span class="badge b-reply">AI reply</span><span>${TIME(x.at)}</span><span>${countWords(x.text)} words</span></div><div class="plain">${esc(x.text)}</div></div>`;
+    const cats = `data-cats="${entryCats(x).join(' ')}"`;
+    if (x.kind === 'ac') {
+      const what = { accepted: 'accepted', partial: `partly kept “${esc(x.kept)}”, then ${x.reason.replace('_', ' ')}`, dismissed: `dismissed (${x.reason.replace('_', ' ')})`, typed_through: 'typed out by hand' }[x.outcome];
+      return `<div class="tabrow" ${cats}><span class="badge b-ac">Suggestion ${x.suggestion_id}</span> ${TIME(x.at)} “${esc(x.text)}” ${what} · shown ${SEC(x.visibleMs)}</div>`;
+    }
+    if (x.kind === 'pause') return `<div class="pause ${x.ms > 10000 ? 'long' : ''}" ${cats}>⏸ ${x.first ? 'Waited' : 'Paused'} ${SEC(x.ms)}${x.first ? ' before first edit' : ''} · ${TIME(x.at)} · ${x.where}</div>`;
+    if (x.kind === 'tab') return `<div class="tabrow" ${cats}>↔ ${TIME(x.at)} switched ${x.from} → ${x.to} (was in ${x.from} for ${SEC(x.spent)})</div>`;
+    if (x.kind === 'prompt') return `<div class="card" ${cats}><div class="meta"><span class="badge b-prompt">Prompt to AI</span><span>${TIME(x.at)}</span></div><div class="plain">${esc(x.text)}</div></div>`;
+    if (x.kind === 'reply') return `<div class="card" ${cats}><div class="meta"><span class="badge b-reply">AI reply ${x.id || ''}</span><span>${TIME(x.at)}</span><span>${countWords(x.text)} words</span></div><div class="plain">${esc(x.text)}</div></div>`;
     const ops = wordDiff(x.before, x.after), st = diffStats(ops);
-    const label = x.source === 'pasted' ? (x.fromAI ? 'Pasted from AI' : 'Pasted') : ({ typed:'Typed', deleted:'Deleted', cut:'Cut', undo:'Undo/Redo', other:'Other' })[x.source];
+    const label = x.source === 'pasted' ? (x.fromAI ? 'Pasted from AI' : 'Pasted (outside / unknown)') : ({ typed:'Typed', spellcheck:'Spellcheck', autocomplete:'Autocomplete', deleted:'Deleted', cut:'Cut', undo:'Undo/Redo', other:'Other' })[x.source];
     const cls = x.source === 'pasted' && x.fromAI ? 'pastedai' : x.source;
     const net = (st.add || st.rem) ? `+${st.add} / −${st.rem} words` : 'no net word change';
-    return `<div class="card"><div class="meta"><span class="badge b-${cls}">${label}</span><span>#${x.id} · ${x.field}</span><span>${TIME(x.startedAt)}</span><span>${net}</span><span>${x.edits} edit${x.edits>1?'s':''} · ${SEC(x.endedAt - x.startedAt)}</span></div><div class="diff">${diffHTML(ops)}</div></div>`;
-  }).join('');
+    const aiTag = x.aiEdit ? `<span class="badge b-aiedit">Changes AI text</span>` : '';
+    return `<div class="card" ${cats}><div class="meta"><span class="badge b-${cls}">${label}</span>${aiTag}<span>#${x.id} · ${x.field}</span><span>${TIME(x.startedAt)}</span><span>${net}</span><span>${x.edits} edit${x.edits>1?'s':''} · ${SEC(x.endedAt - x.startedAt)}</span></div><div class="diff">${diffHTML(ops)}</div></div>`;
+  }).join('') + `<div class="nomatch" id="nomatch" hidden>No changes of the selected types.</div>`;
+  $('#filters').onclick = e => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    const f = b.dataset.f;
+    if (!f) activeFilters.clear();
+    else if (activeFilters.has(f)) activeFilters.delete(f); else activeFilters.add(f);
+    logEvent('log_filter', { active: [...activeFilters] });
+    applyFilters();
+  };
+  applyFilters();
 }
 
+// ---------- Log view filters ----------
+// Several can be on at once (an entry shows if it matches any of them). None on = everything shown.
+const FILTERS = [
+  { key: 'typed',        label: 'Typed',                    sw: '' },
+  { key: 'ai',           label: 'AI pasted',                sw: 'src-ai' },
+  { key: 'aiedit',       label: 'AI, edited by participant', sw: 'src-ai edited' },
+  { key: 'autocomplete', label: 'Autocomplete',             sw: 'src-autocomplete' },
+  { key: 'spellcheck',   label: 'Spellcheck',               sw: 'src-spellcheck' },
+  { key: 'unknown',      label: 'Unknown / outside',        sw: 'src-unknown' },
+  { key: 'deleted',      label: 'Deletions',                sw: 'sw-deleted' },
+  { key: 'chat',         label: 'AI chat',                  sw: 'sw-chat' },
+  { key: 'other',        label: 'Undo / other',             sw: 'sw-other' },
+];
+const activeFilters = new Set();   // starts empty, so the log opens unfiltered
+function entryCats(x) {
+  if (x.kind === 'ac') return ['autocomplete'];                  // every suggestion: accepted, partly kept or rejected
+  if (x.kind === 'prompt' || x.kind === 'reply') return ['chat'];
+  if (x.kind !== 'rev') return ['context'];                       // pauses and tab switches: hidden while filtering
+  const c = [];
+  if (x.source === 'typed') c.push('typed');
+  else if (x.source === 'spellcheck') c.push('spellcheck');
+  else if (x.source === 'autocomplete') c.push('autocomplete');
+  else if (x.source === 'deleted' || x.source === 'cut') c.push('deleted');
+  else if (x.source === 'pasted') c.push(x.fromAI ? 'ai' : 'unknown');
+  else c.push('other');
+  if (x.aiEdit) c.push('aiedit');
+  return c;
+}
+// Final email, one span per run of same-source characters, tagged with the filter categories it belongs to.
+// Characters inside an AI paste the participant edited (the AI ones and the ones they typed) count as 'aiedit'.
+function finalEmailHTML() {
+  const spans = aiEditedSpans(labels.body);
+  return compressLabels(labels.body).map(r => {
+    const edited = r.paste_id && aiPastes[r.paste_id].edited ? ' edited' : '';
+    const cats = [r.source === 'prefilled' ? 'typed' : r.source];
+    if (spans.some(s => r.start >= s.start && r.end <= s.end)) cats.push('aiedit');
+    const tip = r.source + (r.reply_id ? ` from ${r.reply_id} (${r.paste_id})` : '') + (r.suggestion_id ? ` ${r.suggestion_id}` : '');
+    return `<span class="src-${r.source}${edited}" data-cats="${cats.join(' ')}" title="${esc(tip)}">${esc(draft.body.slice(r.start, r.end))}</span>`;
+  }).join('');
+}
+// Self-contained (no outside variables) so the downloaded report can embed this exact function.
+function applyFilterSet(active, root) {
+  const on = active.size > 0;
+  root.querySelectorAll('#filters .chip[data-f]').forEach(b => { if (b.dataset.f) b.setAttribute('aria-pressed', active.has(b.dataset.f)); });
+  let shown = 0;
+  root.querySelectorAll('[data-cats]').forEach(el => {
+    const match = !on || el.dataset.cats.split(' ').some(c => active.has(c));
+    if (el.closest('.final')) el.classList.toggle('dim', !match);
+    else { el.hidden = !match; if (match) shown++; }
+  });
+  root.querySelector('#nomatch').hidden = !on || shown > 0;
+}
+const applyFilters = () => applyFilterSet(activeFilters, $('#logbody'));
+
 logEvent('session_start', { userAgent: navigator.userAgent });
+ac.render();
+loadScenario();
 </script>
 </body>
 </html>

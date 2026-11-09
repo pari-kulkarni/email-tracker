@@ -41,7 +41,7 @@ npm i && npm run test:browser        # real-Chrome end-to-end test (needs Google
 | `public/researcher.html`, `researcher.js` | Researcher page |
 | `scripts/simulate.js` | Generates a realistic fake session through the real API (`DEMO`) |
 | `test/` | Test suites (see §5) |
-| `prototype-v1/` | The first, looser prototype (kept for reference, not used) |
+| `prototype-v1/` | The first, looser prototype. Not used by the main app; extended separately in Nov 2026 (see §9) |
 | `data/<PID>/session.json` | **Master record** per participant (see §4) |
 | `data/<PID>/email<N>.events.jsonl` | Raw events, appended continuously |
 
@@ -168,3 +168,50 @@ If anything in step 8 doesn't match what you did in steps 2–7, that is exactly
 * The simulated `DEMO` session shows the log view and analysis work; it does **not** prove browser capture — that is what the Chrome test and your manual walkthrough are for.
 * Revision grouping, size classes (small ≤1 word, large ≥8 words) and the AI-inspired matching are heuristics; they are configurable and should be validated against hand-coding.
 * Text the participant types that later gets deleted still appears in the log (as it should), but is invisible to the final-text-based flags.
+
+---
+
+## 9. `prototype-v1/` additions (Pari, Nov 2026)
+
+`prototype-v1/` is a separate, single-email, two-file app (`server.js` + `index.html`, no dependencies). It does **not** share code or data with the main app above. These features were added to it to try out ideas; nothing in the main app was changed.
+
+### Run it
+```powershell
+cd prototype-v1
+$env:ANTHROPIC_API_KEY = "sk-ant-..."     # PowerShell; on macOS/Linux: ANTHROPIC_API_KEY=sk-ant-... node server.js
+node server.js
+```
+Open `http://localhost:3000/?pid=P01` (supervisor scenario) or `http://localhost:3000/?pid=P01&cond=colleague`.
+
+| Setting (environment variable) | Default | What it does |
+|---|---|---|
+| `PROVIDER` | `anthropic` | `openai` = any OpenAI-compatible API (OpenAI, Gemini, OpenRouter, Groq, Ollama) |
+| `LLM_BASE_URL`, `LLM_API_KEY` | OpenAI's URL | Used when `PROVIDER=openai`; the key decides which OpenAI project is billed |
+| `MODEL` | `claude-sonnet-5-5` / `gpt-4o` | Chat model |
+| `AC_MODEL` | `claude-haiku-5-5` / `gpt-4o-mini` | Small, fast autocomplete model |
+| `CHAT_SYSTEM_PROMPT`, `AC_SYSTEM_PROMPT` | empty / built-in | System prompts |
+| `PORT` | `3000` | Server port |
+
+### What was added
+- **Scenario card** from `prototype-v1/scenarios.json` (placeholder text; re-read on every page load). Shown on both tabs while writing, with the privacy reminder. To (read-only) and Subject are pre-filled. Condition comes from `?cond=` in the link; there is no admin screen or automatic order alternation.
+- **Per-character source labels** for To, Subject and Body: `typed`, `ai` (with reply and paste IDs), `autocomplete`, `spellcheck`, `prefilled`, `unknown` (e.g. pasted from outside the app). Labels follow the text through edits, undo/redo, and copy/paste within the email. Edits inside pasted AI text mark that paste as an **AI-edited span**. The spec's `I've` → `I have` case gives I, v, e = `ai` and ` ha` = `typed`.
+- **AI pastes linked to the reply** they came from (copy button or selecting text in the chat); replies are saved with `used: true/false`.
+- **Autocomplete** (Smart Compose style): grey text drawn on a mirror layer behind the textarea; Tab accepts (undoable with Ctrl+Z), Esc dismisses, typing the same letters keeps it. Only suggests at the end of the text at a word boundary, ~0.6 s after typing stops (settings in `AC` at the top of the script). Logged as shown / accepted / partly kept / dismissed (with reason) / dropped.
+- **Log view filters**: chips for Typed, AI pasted, AI edited by participant, Autocomplete, Spellcheck, Unknown/outside, Deletions, AI chat, Undo/other. Several can be on at once; none selected = everything (the default). The final email is colour-coded and non-matching text is dimmed.
+- **Readable outputs.** On Send, four files go to `prototype-v1/logs/<PID>/`:
+
+  | File | Use |
+  |---|---|
+  | `<PID>-<session>-report.html` | Self-contained report: scenario, colour-coded email, full revision history with working filters, AI chat transcript with used/not-used replies. Opens offline; prints to PDF. |
+  | `<PID>-<session>-edits.csv` | One row per revision: source, inside AI text, change kind/size, words and exact characters added/removed, timing, pause before |
+  | `<PID>-<session>-events.csv` | One row per raw event |
+  | `<PID>-<session>-session.json` | Master record (includes `char_labels`, `ai_edited_spans`, `ai_replies`) |
+
+  The same files can be downloaded from the log view. CSVs open correctly in Excel (UTF-8; formula-like text is neutralised).
+
+### How it was checked
+- A simulated edit sequence (paste, `I've` → `I have`, spellcheck, undo, outside paste, internal copy/paste, CSV output) and an end-to-end run in headless Chrome against the real server (typing, AI paste and edit, ghost-text alignment on wrapped text, Tab accept, Send, saved files, filters, report). These scripts were run locally and are not in `test/`.
+- **Not yet checked:** real API calls (chat and autocomplete quality/latency), real right-click spellcheck, Firefox/Safari/Edge, long emails that scroll.
+
+### Not in the prototype (the main app already has these)
+Admin/order alternation, two-email flow and comparison view, outside paste/drop blocking, autocorrect, word-by-word chat replies, crash resume, clock sync, researcher page.
